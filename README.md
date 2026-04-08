@@ -49,10 +49,19 @@ whispermlx --help
 
 ### 3. HuggingFace 토큰 발급 (화자 분리 사용 시)
 
-1. https://huggingface.co/settings/tokens 에서 토큰 발급
-2. 아래 두 모델 페이지에서 "Agree and access repository" 클릭:
+화자 분리에 사용되는 pyannote 모델이 HuggingFace 인증을 요구합니다.
+
+1. https://huggingface.co/join 에서 회원가입
+2. https://huggingface.co/settings/tokens 에서 `New token` 클릭 → 이름 입력 → `Read` 권�� 선택 → 생성
+3. 생성된 `hf_xxxx...` 토큰을 복사해두기
+4. 아래 두 모델 페이지에 각각 들어가서 **"Agree and access repository"** 버튼 클릭 (즉시 승인됨):
    - https://huggingface.co/pyannote/speaker-diarization-community-1
    - https://huggingface.co/pyannote/segmentation-3.0
+
+이후 `--hf-token` 옵션에 토큰을 넣어 사용:
+```bash
+python3 transcribe.py meeting.m4a --diarize --hf-token hf_xxxx...
+```
 
 ## Usage
 
