@@ -65,16 +65,19 @@ def _apply_hybrid_rules(
     max_interval: int,
     max_frames: int,
 ) -> list[float]:
-    """
-    1. Ensure the list starts at 0.0 (anchor the opening frame).
-    2. Drop any candidate closer than min_interval to the previously kept one.
-    3. For any gap > max_interval between consecutive kept timestamps,
-       insert evenly-spaced fillers so each sub-gap <= max_interval AND
-       each sub-gap >= min_interval (caller guarantees min_interval <= max_interval).
-    4. If total > max_frames, evenly downsample while preserving first & last.
+    """Compute the final list of frame timestamps.
+
+    1. Anchor 0.0 at the start.
+    2. Drop any candidate closer than `min_interval` to the previously kept one.
+    3. For any gap > `max_interval` (including the tail from the last kept
+       timestamp to `duration`), insert evenly-spaced fillers so each sub-gap
+       is <= `max_interval`. Sub-gaps may end up smaller than `min_interval`
+       when the caller's scene anchors force it — that's acceptable.
+    4. If total > `max_frames`, evenly downsample while preserving first & last.
     """
     # Step 1: prepend 0.0 if missing
-    candidates = sorted({0.0, *scene_times})
+    # Drop anything outside [0, duration] defensively — ffmpeg -ss past EOF produces no output.
+    candidates = sorted({0.0, *(t for t in scene_times if 0 <= t <= duration)})
 
     # Step 2: min_interval merge
     merged: list[float] = []
@@ -107,6 +110,12 @@ def _apply_hybrid_rules(
         last = filled[-1]
         for k in range(1, n_fillers + 1):
             filled.append(last + step * k)
+
+    # Step 4 guards: degenerate max_frames
+    if max_frames <= 0:
+        return []
+    if max_frames == 1:
+        return [filled[0]] if filled else []
 
     # Step 4: downsample to max_frames preserving endpoints
     if len(filled) > max_frames:
@@ -178,7 +187,9 @@ def extract_frames(
 def _extract_at_timestamps(
     video_path: Path, out_dir: Path, timestamps: list[float]
 ) -> None:
-    """One ffmpeg invocation per timestamp — simpler and robust for <= few hundred frames."""
+    """One ffmpeg invocation per timestamp — simpler and robust for <= few hundred frames.
+    TODO(perf): for N > ~100 frames, switch to a single-pass select filter.
+    """
     for idx, ts in enumerate(timestamps, start=1):
         out = out_dir / f"frame_{idx:05d}.png"
         cmd = [

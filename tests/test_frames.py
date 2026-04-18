@@ -136,3 +136,37 @@ def test_hybrid_pads_empty_scene_list():
     assert result[0] == 0.0
     for a, b in zip(result, result[1:]):
         assert b - a <= 60 + 1e-6
+
+
+def test_hybrid_max_frames_one_returns_single_anchor():
+    result = _apply_hybrid_rules(
+        scene_times=[5.0, 10.0, 20.0],
+        duration=30.0,
+        min_interval=1,
+        max_interval=60,
+        max_frames=1,
+    )
+    assert result == [0.0]
+
+
+def test_hybrid_max_frames_zero_returns_empty():
+    result = _apply_hybrid_rules(
+        scene_times=[5.0, 10.0],
+        duration=30.0,
+        min_interval=1,
+        max_interval=60,
+        max_frames=0,
+    )
+    assert result == []
+
+
+def test_hybrid_drops_scene_times_beyond_duration():
+    result = _apply_hybrid_rules(
+        scene_times=[10.0, 150.0, 500.0],  # 150 and 500 both > duration=120
+        duration=120.0,
+        min_interval=1,
+        max_interval=60,
+        max_frames=200,
+    )
+    # 500 and 150 must not appear; 10 may appear if kept after merge
+    assert all(t <= 120.0 for t in result)
