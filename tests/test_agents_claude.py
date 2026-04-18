@@ -1,5 +1,6 @@
-from pathlib import Path
 from unittest.mock import patch, MagicMock
+
+import pytest
 
 from src.agents.claude import ClaudeAgent
 
@@ -45,3 +46,20 @@ def test_claude_retries_once_on_failure(tmp_path):
         out = agent.describe_frame(img, "", "")
     assert out == "ok"
     assert calls["n"] == 2
+
+
+def test_claude_raises_agent_invocation_error_after_both_attempts_fail(tmp_path):
+    import subprocess as sp
+    from src.agents.base import AgentInvocationError
+    img = tmp_path / "frame.png"
+    img.write_bytes(b"")
+    agent = ClaudeAgent()
+
+    def always_fail(cmd, *a, **kw):
+        raise sp.CalledProcessError(1, cmd, stderr=b"nope")
+
+    with patch("src.agents.claude.subprocess.run", side_effect=always_fail):
+        with pytest.raises(AgentInvocationError) as exc:
+            agent.describe_frame(img, "", "")
+    assert exc.value.agent_name == "claude"
+    assert "nope" in str(exc.value)

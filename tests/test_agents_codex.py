@@ -1,4 +1,3 @@
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from src.agents.codex import CodexAgent
@@ -20,3 +19,20 @@ def test_codex_describe_frame_uses_exec_i_flag(tmp_path):
     # prompt is the final positional arg
     assert "ctx" in cmd[-1]
     assert "sys prompt" in cmd[-1]
+
+
+def test_codex_raises_agent_invocation_error_after_both_attempts_fail(tmp_path):
+    import subprocess as sp
+    import pytest
+    from src.agents.base import AgentInvocationError
+    img = tmp_path / "frame.png"
+    img.write_bytes(b"")
+    agent = CodexAgent()
+
+    def always_fail(cmd, *a, **kw):
+        raise sp.CalledProcessError(1, cmd, stderr=b"nope")
+
+    with patch("src.agents.codex.subprocess.run", side_effect=always_fail):
+        with pytest.raises(AgentInvocationError) as exc:
+            agent.describe_frame(img, "", "")
+    assert exc.value.agent_name == "codex"

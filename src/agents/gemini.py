@@ -31,6 +31,7 @@ class GeminiAgent(BaseAgent):
         """Retry-once runner. Mirrors ClaudeAgent._run_with_retry / CodexAgent._run
         but uses this module's subprocess so tests patching
         src.agents.gemini.subprocess.run intercept correctly."""
+        from .base import AgentInvocationError
         last_err: Exception | None = None
         for _ in range(2):
             try:
@@ -42,4 +43,4 @@ class GeminiAgent(BaseAgent):
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 last_err = e
         assert last_err is not None
-        raise last_err
+        raise AgentInvocationError("gemini", cmd, last_err)

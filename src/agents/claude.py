@@ -28,12 +28,13 @@ class ClaudeAgent(BaseAgent):
             "claude",
             "-p", prompt,
             "--append-system-prompt", system_prompt,
-            "--permission-mode", "acceptEdits",
+            "--permission-mode", "bypassPermissions",
         ]
         return self._run_with_retry(cmd, timeout_sec)
 
     @staticmethod
     def _run_with_retry(cmd: list[str], timeout_sec: int) -> str:
+        from .base import AgentInvocationError
         last_err: Exception | None = None
         for attempt in range(2):
             try:
@@ -48,4 +49,4 @@ class ClaudeAgent(BaseAgent):
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 last_err = e
         assert last_err is not None
-        raise last_err
+        raise AgentInvocationError("claude", cmd, last_err)

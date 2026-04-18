@@ -34,6 +34,7 @@ class CodexAgent(BaseAgent):
         """Retry-once runner. Mirrors ClaudeAgent._run_with_retry but calls
         subprocess.run from this module's namespace so tests patching
         src.agents.codex.subprocess.run intercept correctly."""
+        from .base import AgentInvocationError
         last_err: Exception | None = None
         for _ in range(2):
             try:
@@ -45,4 +46,4 @@ class CodexAgent(BaseAgent):
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 last_err = e
         assert last_err is not None
-        raise last_err
+        raise AgentInvocationError("codex", cmd, last_err)
