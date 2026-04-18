@@ -69,3 +69,70 @@ def test_scene_mode_parses_timestamps_from_showinfo(tmp_path):
         )
 
     assert [f["timestamp"] for f in frames] == [12.5, 47.8, 119.25]
+
+
+from src.frames import _apply_hybrid_rules
+
+
+def test_hybrid_merges_timestamps_closer_than_min_interval():
+    # Scene candidates 0, 5, 12, 18, 40  with min_interval=10
+    # Keep 0, 12 (5 drops, 18 drops because 12 just kept), 40
+    result = _apply_hybrid_rules(
+        scene_times=[0.0, 5.0, 12.0, 18.0, 40.0],
+        duration=60.0,
+        min_interval=10,
+        max_interval=60,
+        max_frames=200,
+    )
+    assert result == [0.0, 12.0, 40.0]
+
+
+def test_hybrid_fills_gaps_larger_than_max_interval():
+    # Only two scene hits at 0 and 200, 180s gap > max_interval=60
+    # Insert filler frames every ~60s: 60, 120, 180 (rough midpoints)
+    result = _apply_hybrid_rules(
+        scene_times=[0.0, 200.0],
+        duration=210.0,
+        min_interval=10,
+        max_interval=60,
+        max_frames=200,
+    )
+    # Expect filler timestamps strictly between 0 and 200, each spaced <= 60s
+    assert result[0] == 0.0
+    assert result[-1] == 200.0
+    # Every consecutive pair respects max_interval
+    for a, b in zip(result, result[1:]):
+        assert b - a <= 60 + 1e-6
+    # And min_interval preserved
+    for a, b in zip(result, result[1:]):
+        assert b - a >= 10 - 1e-6
+
+
+def test_hybrid_downsamples_to_max_frames():
+    # 500 scene hits at 0..499 seconds, min_interval=1 so nothing merges
+    scene_times = [float(i) for i in range(500)]
+    result = _apply_hybrid_rules(
+        scene_times=scene_times,
+        duration=500.0,
+        min_interval=1,
+        max_interval=1000,
+        max_frames=50,
+    )
+    assert len(result) == 50
+    # First and last preserved
+    assert result[0] == 0.0
+    assert result[-1] == 499.0
+
+
+def test_hybrid_pads_empty_scene_list():
+    # No scenes detected at all: fall back to max_interval cadence
+    result = _apply_hybrid_rules(
+        scene_times=[],
+        duration=120.0,
+        min_interval=10,
+        max_interval=60,
+        max_frames=200,
+    )
+    assert result[0] == 0.0
+    for a, b in zip(result, result[1:]):
+        assert b - a <= 60 + 1e-6
