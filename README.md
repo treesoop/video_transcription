@@ -1,131 +1,163 @@
-# Whisper Transcription (Mac, Apple Silicon)
+# video_transcription
 
-Apple Silicon Mac에서 미팅 녹음을 로컬로 전사하는 도구.
-Notta 같은 유료 서비스 없이, 더 높은 퀄리티로 전사 + 화자 분리까지 가능.
+Mac(Apple Silicon) 로컬에서 **비디오 파일을 오디오 전사 + 프레임 시각 해석**으로 통합 transcript를 만드는 CLI.
+
+오디오는 `mlx_whisper`, 프레임 해석은 로컬에 설치된 CLI agent(Claude Code / Codex / Gemini) 중 하나를 subprocess로 호출해서 처리.
+
+> Based on [treesoop/whisper_transcription](https://github.com/treesoop/whisper_transcription). 오디오 전사 파이프라인을 그대로 가져와서 프레임 해석 레이어를 얹음.
 
 ## How it works
 
-두 개의 오픈소스 도구를 조합해서 각각의 장점만 사용:
+```
+video.mp4
+  ├─ ffmpeg → audio.wav  → mlx_whisper  → 오디오 transcript
+  └─ ffmpeg scene detect → frames/*.png  → agent 해석  → 프레임 설명
+                                             ↓
+                                    병합된 타임라인 (md + json)
+```
 
-| 단계 | 도구 | 역할 |
-|------|------|------|
-| 전사 | [mlx-whisper](https://github.com/ml-explore/mlx-examples) | Metal GPU 가속, hallucination 방지 옵션 |
-| 화자 분리 | [whispermlx](https://github.com/kalebjs/whispermlx) | pyannote 기반 speaker diarization |
-
-> **왜 이렇게?**
-> whispermlx 단독 사용 시 한국어에서 hallucination("Jelly Jelly..." 반복)이 발생.
-> mlx-whisper는 `--hallucination-silence-threshold` 옵션으로 이를 방지할 수 있지만 화자 분리가 없음.
-> 그래서 **전사는 mlx-whisper, 화자 분리는 whispermlx**에서 가져와 병합.
+핵심 아이디어: 오디오를 먼저 전사한 다음, 각 프레임을 agent에 던질 때 해당 시점의 대화 맥락을 함께 전달해서 더 정확한 시각 해석을 얻음.
 
 ## Setup
 
-### 1. mlx-whisper 설치
+### 1. 공통 의존성
+
+```bash
+brew install ffmpeg
+pip3 install -r requirements.txt
+```
+
+### 2. 오디오 전사 백엔드
 
 ```bash
 pip3 install mlx-whisper
-```
-
-설치 후 확인:
-```bash
-mlx_whisper --help
-```
-
-### 2. whispermlx 설치 (화자 분리 사용 시)
-
-Python 3.10+ 필요. [uv](https://github.com/astral-sh/uv)로 설치하는 게 가장 간단:
-
-```bash
-# uv 없으면 먼저 설치
-brew install uv
-
-# whispermlx 설치
+# 화자 분리 쓸 때만
 uv tool install whispermlx --python 3.12
 ```
 
-설치 후 확인:
+### 3. Agent 하나 선택해서 설치
+
+**Claude (기본)**
 ```bash
-whispermlx --help
+curl -fsSL https://claude.ai/install.sh | bash
+# 또는 npm install -g @anthropic-ai/claude-code
+claude   # 첫 실행 OAuth 로그인 (Claude Pro/Max 구독 또는 API key)
 ```
 
-### 3. HuggingFace 토큰 발급 (화자 분리 사용 시)
+**Codex**
+```bash
+npm install -g @openai/codex
+codex login
+```
 
-1. https://huggingface.co/settings/tokens 에서 토큰 발급
-2. 아래 두 모델 페이지에서 "Agree and access repository" 클릭:
-   - https://huggingface.co/pyannote/speaker-diarization-community-1
-   - https://huggingface.co/pyannote/segmentation-3.0
+**Gemini**
+```bash
+npm install -g @google/gemini-cli
+gemini   # Google 계정 로그인 또는 `export GEMINI_API_KEY=...`
+```
+
+### 4. 환경 검증
+
+```bash
+python3 video_transcribe.py --check --agent claude
+```
+
+없는 의존성이 있으면 설치 명령을 안내해줌.
 
 ## Usage
 
-### 전사만 (화자 분리 없이)
+### 기본
 
 ```bash
-python3 transcribe.py meeting.m4a
+python3 video_transcribe.py meeting.mp4
 ```
 
-출력: `./meeting.txt`
+출력: `./meeting.md`
 
-```
-00:00 네. 저희 그래서 30일에 먼저 태국으로 가세요?
-00:15 스미님은?
-00:17 예정상으로는 그렇긴 합니다.
-```
-
-### 전사 + 화자 분리
+### 주요 옵션
 
 ```bash
-python3 transcribe.py meeting.m4a --diarize --hf-token YOUR_TOKEN
+python3 video_transcribe.py video.mp4 \
+    --agent codex \
+    --mode hybrid \
+    --min-interval 10 --max-interval 60 --max-frames 200 \
+    --scene-threshold 0.3 \
+    --parallel 4 \
+    --format both \
+    -o ./out
 ```
 
-출력: `./meeting.txt`
+| flag | 기본값 | 설명 |
+|---|---|---|
+| `--agent` | `claude` | `claude` \| `codex` \| `gemini` |
+| `--mode` | `hybrid` | 프레임 추출 전략 |
+| `--interval` | `30` | `interval` 모드의 고정 간격(초) |
+| `--min-interval` | `10` | hybrid: 최소 프레임 간격 |
+| `--max-interval` | `60` | hybrid: 최대 공백 → 강제 프레임 삽입 |
+| `--max-frames` | `200` | 전체 프레임 상한 |
+| `--scene-threshold` | `0.3` | ffmpeg scene 민감도 (0~1) |
+| `--diarize` | off | 화자 분리 (`--hf-token` 필수) |
+| `--hf-token` | env `HF_TOKEN` | HuggingFace 토큰 |
+| `--prompt-file` | `prompts/default.md` | 프레임 해석 프롬프트 override |
+| `--context-window` | `30` | 프레임 주변 오디오 맥락(±초) |
+| `--format` | `md` | `md` \| `json` \| `both` |
+| `--parallel` | `4` | 동시 agent 호출 수 |
+| `--keep-frames` | off | 프레임 이미지 유지 (기본은 삭제) |
+| `--check` | — | 의존성 검증만 하고 종료 |
 
-```
-[SPEAKER_03] 00:00 네. 저희 그래서 30일에 먼저 태국으로 가세요?
-[SPEAKER_03] 00:15 스미님은?
-[SPEAKER_02] 00:17 예정상으로는 그렇긴 합니다.
-```
+### 커스텀 프롬프트
 
-### 출력 디렉토리 지정
+`examples/meeting_recipe.md`, `examples/lecture_recipe.md` 참고:
 
 ```bash
-python3 transcribe.py meeting.m4a --diarize --hf-token YOUR_TOKEN -o ./output
+python3 video_transcribe.py meeting.mp4 --prompt-file examples/meeting_recipe.md
 ```
 
-## Tips
-
-### 긴 오디오는 30분 단위로 분할
-
-Whisper는 오디오가 길어질수록 후반부 품질이 떨어짐. 1시간 이상이면 분할 후 전사.
+### 화자 분리 포함
 
 ```bash
-ffmpeg -i meeting.m4a -f segment -segment_time 1800 -c copy meeting_%03d.m4a
+python3 video_transcribe.py meeting.mp4 --diarize --hf-token $HF_TOKEN
 ```
 
-### `--language` 옵션 사용하지 않기
+화자 분리용 HuggingFace 토큰은 [whisper_transcription README](https://github.com/treesoop/whisper_transcription#3-huggingface-토큰-발급-화자-분리-사용-시)의 절차를 따라 발급.
 
-자동 감지가 훨씬 정확. 한국어+영어 섞인 미팅에서 언어를 고정하면 오히려 품질이 떨어짐.
+## 출력 예시 (Markdown)
 
-### 첫 실행은 느림
+```markdown
+# meeting.mp4 — Transcript
 
-모델을 다운로드해야 해서 첫 실행에 시간이 걸림 (약 3GB). 이후에는 캐시되어 빠르게 동작.
+**Duration:** 1:23:18 · **Frames analyzed:** 42 · **Agent:** claude · **Generated:** 2026-04-19T10:00:00+09:00
+
+---
+
+**[SPEAKER_00]** 00:00 네 오늘은 1분기 리뷰 시작하겠습니다.
+**[SPEAKER_01]** 00:08 준비됐습니다.
+
+> 🖼️ **[00:15]** Zoom 화면 공유 상태. "Q1 Review" 슬라이드 표지. 상단에 참가자 썸네일 4명.
+```
+
+## Prompt 팁
+
+- 용도별 프롬프트를 `examples/`에 두거나 직접 작성. 범용 기본값은 `prompts/default.md`.
+- 회의 녹화·강의·튜토리얼 등 타겟 컨텐츠에 맞춘 recipe를 쓰면 프레임 해석 품질이 눈에 띄게 향상됨.
+- 프롬프트는 일반 텍스트. `--prompt-file`로 경로 지정.
+
+## Architecture
+
+- `video_transcribe.py` — CLI entrypoint (argparse + 파이프라인 orchestration)
+- `src/audio.py` — mlx_whisper 래퍼 + 비디오→오디오 추출 (whisper_transcription 이식)
+- `src/frames.py` — ffmpeg 프레임 추출 (interval / scene / hybrid)
+- `src/agents/{claude,codex,gemini}.py` — subprocess 기반 pluggable adapter
+- `src/merge.py` — 타임라인 병합 + md/json 렌더
+- `src/preflight.py` — 의존성 검증 (`--check`)
 
 ## Requirements
 
 - Apple Silicon Mac (M1/M2/M3/M4)
-- Python 3.9+ (mlx-whisper용)
-- [uv](https://github.com/astral-sh/uv) (whispermlx 설치용)
-- ffmpeg (오디오 분할 시): `brew install ffmpeg`
+- Python 3.9+
+- ffmpeg
+- 다음 중 하나: Claude Code / Codex CLI / Gemini CLI
 
-## Benchmarks
+## License
 
-20분 한국어 미팅 기준:
-
-| | whisper_transcription | Notta (유료) |
-|---|---|---|
-| **전사 정확도** | 높음 | 보통 |
-| **Hallucination** | 없음 | 없음 |
-| **화자 분리** | 있음 (짧은 추임새 간혹 흔들림) | 있음 (안정적) |
-| **고유명사/약어** | 정확 | 누락/오인식 많음 |
-| **문장 분리** | 한 줄씩 깔끔 | 긴 덩어리 |
-| **한국어** | 강함 | 보통 |
-| **영어** | 강함 | 강함 |
-| **비용** | 무료 (로컬) | 유료 |
+MIT (upstream `whisper_transcription`과 동일).
