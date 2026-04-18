@@ -1,8 +1,10 @@
 """Dependency preflight check for video_transcription."""
 from __future__ import annotations
 
+import glob
 import os
 import shutil
+import sysconfig
 from typing import TypedDict
 
 
@@ -29,11 +31,32 @@ BASE_INSTALL = {
 
 
 def _which_mlx_whisper() -> str | None:
-    """mlx_whisper may live in ~/Library/Python/3.9/bin (non-PATH by default)."""
-    known = os.path.expanduser("~/Library/Python/3.9/bin/mlx_whisper")
-    if os.path.isfile(known):
-        return known
-    return shutil.which("mlx_whisper")
+    """
+    mlx_whisper may live in ~/Library/Python/X.Y/bin which is not on PATH
+    by default on macOS. Try (in order):
+      1. shutil.which (standard PATH lookup)
+      2. The user-scripts directory of the CURRENT Python (posix_user scheme)
+      3. Any ~/Library/Python/*/bin/mlx_whisper (covers multiple Pythons)
+    """
+    # 1. PATH
+    found = shutil.which("mlx_whisper")
+    if found:
+        return found
+
+    # 2. Current interpreter's user scripts dir
+    user_scripts = sysconfig.get_path("scripts", "posix_user")
+    if user_scripts:
+        candidate = os.path.join(user_scripts, "mlx_whisper")
+        if os.path.isfile(candidate):
+            return candidate
+
+    # 3. Any installed Python's user scripts dir under ~/Library/Python
+    pattern = os.path.expanduser("~/Library/Python/*/bin/mlx_whisper")
+    for match in glob.glob(pattern):
+        if os.path.isfile(match):
+            return match
+
+    return None
 
 
 def check_dependencies(agent: str, diarize: bool) -> list[Missing]:
