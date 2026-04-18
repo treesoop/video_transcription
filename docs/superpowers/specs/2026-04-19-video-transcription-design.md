@@ -126,15 +126,14 @@ class BaseAgent(ABC):
         image_path: Path,
         audio_context: str,
         system_prompt: str,
+        timeout_sec: int = 120,
     ) -> str: ...
-
-    @abstractmethod
-    def check_installed(self) -> tuple[bool, str]: ...
-    # returns (ok, install_instruction_if_not)
 ```
 
+> Installation checks (per-agent CLI availability) live in `src/preflight.py`, not on `BaseAgent`. Centralizing them there keeps adapter files focused on describe-frame behavior and avoids duplicating install-instruction strings across three classes.
+
 호출 방식:
-- **Claude**: `claude -p "<system_prompt>\n\nAUDIO CONTEXT:\n<ctx>\n\nRead the image at <abs_path> using the Read tool, then describe it."` — Read tool이 print 모드에서 default로 enabled이고 멀티모달 이미지 읽기 지원. `--append-system-prompt` 활용 가능.
+- **Claude**: `claude -p "<system_prompt>\n\nAUDIO CONTEXT:\n<ctx>\n\nRead the image at <abs_path> using the Read tool, then describe it."` — Read tool이 print 모드에서 default로 enabled이고 멀티모달 이미지 읽기 지원. `--append-system-prompt` + `--permission-mode bypassPermissions` (non-interactive subprocess에서 Read tool permission prompt로 hang되는 걸 방지).
 - **Codex**: `codex exec -i <abs_path> "<system_prompt>\n\nAUDIO CONTEXT:\n<ctx>\n\nDescribe the attached image."`
 - **Gemini**: `gemini -p "<system_prompt>\n\nAUDIO CONTEXT:\n<ctx>\n\nDescribe this frame. @<abs_path>"`
 
