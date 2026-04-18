@@ -16,11 +16,9 @@ Usage:
     python transcribe.py meeting.m4a --diarize --hf-token YOUR_TOKEN -o ./output
 """
 
-import argparse
 import json
 import os
 import subprocess
-import sys
 import tempfile
 
 
@@ -143,37 +141,12 @@ def write_output(segments: list, output_path: str, has_speakers: bool):
     print(f"\n완료: {output_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="mlx_whisper + whispermlx 화자 분리")
-    parser.add_argument("audio", help="오디오 파일 경로")
-    parser.add_argument("--diarize", action="store_true", help="화자 분리 활성화")
-    parser.add_argument("--hf-token", help="HuggingFace 토큰 (화자 분리 시 필수)")
-    parser.add_argument("-o", "--output-dir", default=".", help="출력 디렉토리")
-    args = parser.parse_args()
-
-    if args.diarize and not args.hf_token:
-        parser.error("--diarize 사용 시 --hf-token 필수")
-
-    os.makedirs(args.output_dir, exist_ok=True)
-    basename = os.path.splitext(os.path.basename(args.audio))[0]
-    output_path = os.path.join(args.output_dir, f"{basename}.txt")
-
-    # 1. mlx_whisper 전사
-    transcription = transcribe_mlx(args.audio)
-
-    if args.diarize:
-        # 2. whispermlx 화자 분리
-        diar_segments = diarize_whispermlx(args.audio, args.hf_token)
-        # 3. 병합
-        segments = assign_speakers(transcription, diar_segments)
-        write_output(segments, output_path, has_speakers=True)
-    else:
-        segments = [
-            {"start": s["start"], "end": s["end"], "text": s["text"].strip()}
-            for s in transcription["segments"]
-        ]
-        write_output(segments, output_path, has_speakers=False)
-
-
-if __name__ == "__main__":
-    main()
+def extract_audio_from_video(video_path: str, out_wav: str) -> str:
+    """Extract the audio track of a video into a 16kHz mono WAV using ffmpeg."""
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-vn", "-ac", "1", "-ar", "16000", "-f", "wav",
+        out_wav,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return out_wav
