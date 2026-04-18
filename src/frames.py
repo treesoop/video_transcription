@@ -1,6 +1,7 @@
 """Frame extraction from video files via ffmpeg."""
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 from typing import Literal, TypedDict
@@ -38,6 +39,25 @@ def _extract_at_interval(video_path: Path, out_dir: Path, interval: int) -> None
     subprocess.run(cmd, check=True, capture_output=True)
 
 
+_PTS_TIME_RE = re.compile(rb"pts_time:([\d.]+)")
+
+
+def _extract_scenes(
+    video_path: Path, out_dir: Path, threshold: float
+) -> list[float]:
+    """Run ffmpeg with scene filter + showinfo. Returns list of timestamps (seconds)."""
+    pattern = str(out_dir / "frame_%05d.png")
+    cmd = [
+        "ffmpeg", "-y", "-i", str(video_path),
+        "-vf", f"select='gt(scene,{threshold})',showinfo",
+        "-vsync", "vfr",
+        pattern,
+    ]
+    proc = subprocess.run(cmd, check=True, capture_output=True)
+    timestamps = [float(m.group(1)) for m in _PTS_TIME_RE.finditer(proc.stderr)]
+    return timestamps
+
+
 def extract_frames(
     video_path: Path,
     out_dir: Path,
@@ -53,16 +73,16 @@ def extract_frames(
     if mode == "interval":
         duration = _video_duration_sec(video_path)
         _extract_at_interval(video_path, out_dir, interval)
-        # timestamps: 0, interval, 2*interval, ... < duration
-        timestamps: list[float] = []
+        timestamps = []
         t = 0.0
         while t < duration:
             timestamps.append(t)
             t += interval
+    elif mode == "scene":
+        timestamps = _extract_scenes(video_path, out_dir, scene_threshold)
+    else:
+        raise NotImplementedError(f"mode={mode!r} not implemented yet")
 
-        images = sorted(out_dir.glob("frame_*.png"))
-        # Pair by index (ffmpeg order matches timestamps order)
-        n = min(len(timestamps), len(images))
-        return [{"timestamp": timestamps[i], "image_path": images[i]} for i in range(n)]
-
-    raise NotImplementedError(f"mode={mode!r} not implemented yet")
+    images = sorted(out_dir.glob("frame_*.png"))
+    n = min(len(timestamps), len(images))
+    return [{"timestamp": timestamps[i], "image_path": images[i]} for i in range(n)]
