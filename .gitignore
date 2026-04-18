@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+# video/audio artifacts
+*.mp4
+*.m4a
+*.wav
+*.mp3
+# tool output
+out/
+output/
+tmp/
