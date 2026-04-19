@@ -170,3 +170,23 @@ def test_hybrid_drops_scene_times_beyond_duration():
     )
     # 500 and 150 must not appear; 10 may appear if kept after merge
     assert all(t <= 120.0 for t in result)
+
+
+def test_dedup_identical_frames_keeps_first_of_each_hash(tmp_path):
+    from src.frames import _dedup_identical_frames
+    (tmp_path / "a.png").write_bytes(b"AAA")
+    (tmp_path / "b.png").write_bytes(b"AAA")  # duplicate of a
+    (tmp_path / "c.png").write_bytes(b"CCC")
+    (tmp_path / "d.png").write_bytes(b"AAA")  # duplicate of a again
+    paired = [
+        (0.0, tmp_path / "a.png"),
+        (10.0, tmp_path / "b.png"),
+        (20.0, tmp_path / "c.png"),
+        (30.0, tmp_path / "d.png"),
+    ]
+    kept = _dedup_identical_frames(paired)
+    assert [f["timestamp"] for f in kept] == [0.0, 20.0]
+    assert all(f["image_path"].exists() for f in kept)
+    # b and d were unlinked
+    assert not (tmp_path / "b.png").exists()
+    assert not (tmp_path / "d.png").exists()

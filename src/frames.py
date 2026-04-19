@@ -1,6 +1,7 @@
 """Frame extraction from video files via ffmpeg."""
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -178,10 +179,32 @@ def extract_frames(
         )
         _extract_at_timestamps(video_path, out_dir, final_ts)
         images = sorted(out_dir.glob("frame_*.png"))
-        n = min(len(final_ts), len(images))
-        return [{"timestamp": final_ts[i], "image_path": images[i]} for i in range(n)]
+        # Pair by index first, then drop bitwise-identical frames (ffmpeg fast-seek
+        # can return the same keyframe when the video is static between timestamps).
+        paired = list(zip(final_ts[: len(images)], images))
+        return _dedup_identical_frames(paired)
 
     raise ValueError(f"unknown mode {mode!r}")
+
+
+def _dedup_identical_frames(paired: list[tuple[float, Path]]) -> list[Frame]:
+    """Drop entries whose PNG bytes match a previously-kept frame.
+
+    ffmpeg's fast-seek (`-ss` before `-i`) snaps to the nearest keyframe, so
+    multiple distinct timestamps in a static scene can produce byte-identical
+    PNGs. We MD5-hash each file, keep the first occurrence, and unlink the rest.
+    Returns the surviving frames in original order.
+    """
+    kept: list[Frame] = []
+    seen: set[str] = set()
+    for ts, img in paired:
+        digest = hashlib.md5(img.read_bytes()).hexdigest()
+        if digest in seen:
+            img.unlink()
+            continue
+        seen.add(digest)
+        kept.append({"timestamp": ts, "image_path": img})
+    return kept
 
 
 def _extract_at_timestamps(
