@@ -168,7 +168,7 @@ python3 video_transcribe.py VIDEO_PATH [options]
 | `--min-interval` | `10` | Hybrid: minimum seconds between kept frames |
 | `--max-interval` | `60` | Hybrid: force-insert a frame in gaps longer than this |
 | `--max-frames` | `200` | Hard cap on total frames analyzed |
-| `--scene-threshold` | `0.3` | ffmpeg scene sensitivity (0–1) |
+| `--scene-threshold` | `0.15` | ffmpeg scene sensitivity (0–1). Lower = more frames. Live-action: `0.3`. Animation/illustration: `0.05`–`0.1`. |
 | `--diarize` | off | Enable speaker diarization (requires `--hf-token`) |
 | `--hf-token` | `$HF_TOKEN` | HuggingFace token for pyannote |
 | `--prompt-file` | `prompts/default.md` | Override the frame-description system prompt |

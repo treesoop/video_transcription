@@ -60,7 +60,7 @@ argparse 기반 엔트리포인트. flags:
 | `--min-interval` | `10` | hybrid: 프레임 간 최소 시간 |
 | `--max-interval` | `60` | hybrid: 공백 구간에 강제 프레임 삽입 간격 |
 | `--max-frames` | `200` | 전체 프레임 수 상한 |
-| `--scene-threshold` | `0.3` | ffmpeg scene 민감도 (0-1) |
+| `--scene-threshold` | `0.15` | ffmpeg scene 민감도 (0-1). 낮을수록 프레임 많이 뽑힘. 실사 `0.3`, 애니메이션/일러스트 `0.05`~`0.1` 권장 |
 | `--diarize` | off | 오디오 화자 분리 활성화 |
 | `--hf-token` | env `HF_TOKEN` | 화자 분리용 HuggingFace 토큰 |
 | `--prompt-file` | 내장 기본값 | 프레임 해석 시스템 프롬프트 override |
