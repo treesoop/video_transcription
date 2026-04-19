@@ -124,32 +124,37 @@ Every adapter implements the same `BaseAgent.describe_frame(image, audio_context
 
 ## 📺 Example Output
 
-From an Indonesian psychology explainer video (5m 49s, mlx_whisper auto-detected the language, Claude described each frame):
+From an 8-minute product demo video (Claude described each frame):
 
 ```markdown
-# ep02-final.mp4 — Transcript
+# demo.mp4 — Transcript
 
-**Duration:** 05:49 · **Frames analyzed:** 6 · **Agent:** claude
+**Duration:** 08:12 · **Frames analyzed:** 9 · **Agent:** claude
 
 ---
 
-00:00 Kalau ada seseorang yang diam-diam mengendalikan pikiranmu...
+00:00 Alright, let me walk you through the analytics dashboard we shipped last week.
 
-> 🖼️ **[00:00]** Dark stage with a giant hand holding strings from above,
-> a small paper-puppet boy hanging in the center, a small lantern to the
-> right. The scene visually mirrors the audio's metaphor of "social
-> influence techniques" — an unseen manipulator pulling the strings.
+> 🖼️ **[00:00]** A web dashboard in dark mode. Top navigation reads
+> "Overview / Analytics / Settings / Billing". Main panel shows a line
+> chart titled "Active Users — Last 7 Days" with the line climbing from
+> ~1,200 to ~4,800. Matches the speaker introducing the new dashboard.
 
-00:26 Dalam psikologi, ini disebut teknik pengaruh sosial.
-00:33 Hari ini, aku akan bongkar lima trik yang paling sering kamu alami.
-00:42 Pertama, teknik kaki di pintu.
+00:14 The first thing you'll notice is the analytics panel on the left.
+00:22 We pull four key metrics right at the top.
+00:30 Conversion, bounce rate, session length, and churn.
 
-> 🖼️ **[03:04]** Illustrated phone screen showing the Tokopedia shopping
-> app. Top bar: "tokopedia". Product page for "Sepatu Kasual Pria" priced
-> at "Rp 1.200.000". Bottom tabs: Beranda / Feed / Official Store /
-> Wishlist / Transaksi. Buttons: "Beli Langsung" and "Keranjang".
-> Exactly matches the audio's anchoring example — the Rp1.2M original
-> price being shown before the flash-sale reveal.
+> 🖼️ **[00:32]** Same dashboard, now with a left-side analytics panel
+> highlighted. Four stat cards visible: "Conversion Rate 3.4%",
+> "Bounce Rate 42%", "Avg Session 2m 18s", "Churn 1.2%". The speaker's
+> focus matches the highlighted element exactly.
+
+00:48 If you click into any metric you get a drill-down.
+
+> 🖼️ **[00:52]** A modal overlay has opened. Table headers:
+> "Source / Visits / Conversions / Rate". Visible rows include
+> "Direct 2,341 / 112 / 4.8%" and "Organic 1,892 / 67 / 3.5%".
+> Corresponds to the speaker describing clicking a metric to drill down.
 ```
 
 The frame descriptions *know* what the narrator is talking about because the audio context was passed alongside the image.
