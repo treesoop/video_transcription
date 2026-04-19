@@ -1,163 +1,291 @@
-# video_transcription
+<div align="center">
 
-Mac(Apple Silicon) 로컬에서 **비디오 파일을 오디오 전사 + 프레임 시각 해석**으로 통합 transcript를 만드는 CLI.
+# 🎬 video_transcription
 
-오디오는 `mlx_whisper`, 프레임 해석은 로컬에 설치된 CLI agent(Claude Code / Codex / Gemini) 중 하나를 subprocess로 호출해서 처리.
+**Turn any video into a rich, timestamped transcript — audio + on-screen visuals, merged.**
 
-> Based on [treesoop/whisper_transcription](https://github.com/treesoop/whisper_transcription). 오디오 전사 파이프라인을 그대로 가져와서 프레임 해석 레이어를 얹음.
+Local. Fast. No API keys required (if you already have Claude Code / Codex / Gemini CLI).
 
-## How it works
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-black.svg)](https://support.apple.com/en-us/116943)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![Built on mlx_whisper](https://img.shields.io/badge/audio-mlx__whisper-orange.svg)](https://github.com/ml-explore/mlx-examples/tree/main/whisper)
 
-```
-video.mp4
-  ├─ ffmpeg → audio.wav  → mlx_whisper  → 오디오 transcript
-  └─ ffmpeg scene detect → frames/*.png  → agent 해석  → 프레임 설명
-                                             ↓
-                                    병합된 타임라인 (md + json)
-```
+[Features](#-features) · [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Agents](#-pick-your-agent) · [Example Output](#-example-output)
 
-핵심 아이디어: 오디오를 먼저 전사한 다음, 각 프레임을 agent에 던질 때 해당 시점의 대화 맥락을 함께 전달해서 더 정확한 시각 해석을 얻음.
+</div>
 
-## Setup
+---
 
-### 1. 공통 의존성
+## 💡 Why?
+
+Traditional transcription tools give you **text only**. You lose everything on screen — slides, charts, code, UI screenshots. You end up with a transcript that says *"as you can see here..."* and no way to know what *here* is.
+
+`video_transcription` fixes that by running two passes:
+
+1. **Audio** is transcribed with [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (hallucination-guarded, Metal-accelerated).
+2. **Frames** are pulled via scene detection + hybrid interval rules, then handed to **your local AI CLI agent** (Claude Code, Codex, or Gemini) which describes each frame *with the surrounding audio as context* — so it understands what it's looking at.
+
+The result: one interleaved timeline you can read, search, or feed back into another LLM.
+
+## ✨ Features
+
+- 🎯 **Audio + visual in one transcript** — not two separate files you have to align yourself
+- 🔌 **Pluggable AI agents** — swap between `claude`, `codex`, `gemini` with one flag
+- 🧠 **Context-aware frame descriptions** — each frame is described *knowing* what was just said
+- ⚡ **Metal-accelerated** — `mlx-whisper` on Apple Silicon runs transcription faster than realtime
+- 🎛️ **Smart frame selection** — hybrid mode combines scene-change detection with min/max interval guards, plus bitwise dedup for static scenes
+- 🗣️ **Speaker diarization (optional)** — via pyannote through `whispermlx`
+- 🌐 **Multilingual** — Whisper auto-detects language (tested on Korean, Indonesian, English; works for 99 languages)
+- 📄 **Markdown + JSON output** — human-readable and machine-parseable
+- 🔒 **Runs locally** — your video never leaves your machine (your CLI agent's cloud calls aside)
+
+## 🚀 Quick Start
 
 ```bash
+# 1. Clone
+git clone git@github.com:treesoop/video_transcription.git
+cd video_transcription
+
+# 2. Install common deps
 brew install ffmpeg
-pip3 install -r requirements.txt
-```
+pip3 install -r requirements.txt mlx-whisper
 
-### 2. 오디오 전사 백엔드
-
-```bash
-pip3 install mlx-whisper
-# 화자 분리 쓸 때만
-uv tool install whispermlx --python 3.12
-```
-
-### 3. Agent 하나 선택해서 설치
-
-**Claude (기본)**
-```bash
+# 3. Install ONE agent CLI (Claude is the default)
 curl -fsSL https://claude.ai/install.sh | bash
-# 또는 npm install -g @anthropic-ai/claude-code
-claude   # 첫 실행 OAuth 로그인 (Claude Pro/Max 구독 또는 API key)
-```
+claude   # first run: OAuth sign-in
 
-**Codex**
-```bash
-npm install -g @openai/codex
-codex login
-```
-
-**Gemini**
-```bash
-npm install -g @google/gemini-cli
-gemini   # Google 계정 로그인 또는 `export GEMINI_API_KEY=...`
-```
-
-### 4. 환경 검증
-
-```bash
+# 4. Verify
 python3 video_transcribe.py --check --agent claude
+
+# 5. Transcribe
+python3 video_transcribe.py my_video.mp4
+# → my_video.md
 ```
 
-없는 의존성이 있으면 설치 명령을 안내해줌.
+That's it. Drop in a video, get a transcript back.
 
-## Usage
+## ⚙️ How It Works
 
-### 기본
+```
+                         ┌─────────────────────────────────────────┐
+                         │             video.mp4                    │
+                         └────────────────┬────────────────────────┘
+                                          │
+                ┌─────────────────────────┴─────────────────────────┐
+                ▼                                                   ▼
+    ┌───────────────────────┐                      ┌────────────────────────────┐
+    │   ffmpeg → audio.wav  │                      │  ffmpeg scene detection +  │
+    │                       │                      │  hybrid interval guards    │
+    │   mlx_whisper         │                      │  + MD5 dedup               │
+    │   (hallucination-safe)│                      └──────────────┬─────────────┘
+    └──────────┬────────────┘                                     │
+               │                                                  ▼
+    (opt) whispermlx diarize                          ┌──────────────────────┐
+               │                                      │  your local agent    │
+               ▼                                      │  CLI (parallel x4)   │
+    ┌──────────────────────┐                          │  claude | codex |    │
+    │ audio_segments:      │  ◀── audio ±30s context  │  gemini              │
+    │  [start, end, text,  │  ─────────────────────▶  │                      │
+    │   speaker?]          │                          │  describes each      │
+    └──────────┬───────────┘                          │  frame contextually  │
+               │                                      └──────────┬───────────┘
+               │                                                 │
+               └────────────────────┬────────────────────────────┘
+                                    ▼
+                     ┌──────────────────────────────┐
+                     │   timeline merge (by time)   │
+                     └─────────────┬────────────────┘
+                                   │
+                      ┌────────────┴────────────┐
+                      ▼                         ▼
+                 output.md                 output.json
+              (human-friendly)          (machine-parseable)
+```
+
+The clever bit is the **audio → context → frame** flow. Instead of asking an agent to describe a frame cold, we slice the audio transcript around that moment (±30s by default) and feed it in. The agent stops guessing and starts grounding.
+
+## 🤖 Pick Your Agent
+
+| Agent | How it's called | Cost model | Install |
+|---|---|---|---|
+| **Claude Code** (default) | `claude -p` + Read tool | Claude Pro/Max subscription or API key | `curl -fsSL https://claude.ai/install.sh \| bash` |
+| **Codex** | `codex exec -i <image>` | ChatGPT Plus/Pro or OpenAI API key | `npm install -g @openai/codex` |
+| **Gemini** | `gemini -p "@<image>"` | Free tier available + Google API | `npm install -g @google/gemini-cli` |
+
+Swap with a flag:
 
 ```bash
-python3 video_transcribe.py meeting.mp4
+python3 video_transcribe.py my_video.mp4 --agent codex
+python3 video_transcribe.py my_video.mp4 --agent gemini
 ```
 
-출력: `./meeting.md`
+Every adapter implements the same `BaseAgent.describe_frame(image, audio_context, system_prompt)` interface, so adding another CLI (Aider, Cursor headless, your own wrapper) is a 30-line file in `src/agents/`.
 
-### 주요 옵션
+## 📺 Example Output
+
+From an Indonesian psychology explainer video (5m 49s, mlx_whisper auto-detected the language, Claude described each frame):
+
+```markdown
+# ep02-final.mp4 — Transcript
+
+**Duration:** 05:49 · **Frames analyzed:** 6 · **Agent:** claude
+
+---
+
+00:00 Kalau ada seseorang yang diam-diam mengendalikan pikiranmu...
+
+> 🖼️ **[00:00]** Dark stage with a giant hand holding strings from above,
+> a small paper-puppet boy hanging in the center, a small lantern to the
+> right. The scene visually mirrors the audio's metaphor of "social
+> influence techniques" — an unseen manipulator pulling the strings.
+
+00:26 Dalam psikologi, ini disebut teknik pengaruh sosial.
+00:33 Hari ini, aku akan bongkar lima trik yang paling sering kamu alami.
+00:42 Pertama, teknik kaki di pintu.
+
+> 🖼️ **[03:04]** Illustrated phone screen showing the Tokopedia shopping
+> app. Top bar: "tokopedia". Product page for "Sepatu Kasual Pria" priced
+> at "Rp 1.200.000". Bottom tabs: Beranda / Feed / Official Store /
+> Wishlist / Transaksi. Buttons: "Beli Langsung" and "Keranjang".
+> Exactly matches the audio's anchoring example — the Rp1.2M original
+> price being shown before the flash-sale reveal.
+```
+
+The frame descriptions *know* what the narrator is talking about because the audio context was passed alongside the image.
+
+## 🎛️ CLI Reference
 
 ```bash
-python3 video_transcribe.py video.mp4 \
-    --agent codex \
-    --mode hybrid \
-    --min-interval 10 --max-interval 60 --max-frames 200 \
-    --scene-threshold 0.3 \
-    --parallel 4 \
-    --format both \
-    -o ./out
+python3 video_transcribe.py VIDEO_PATH [options]
 ```
 
-| flag | 기본값 | 설명 |
+| Flag | Default | Description |
 |---|---|---|
 | `--agent` | `claude` | `claude` \| `codex` \| `gemini` |
-| `--mode` | `hybrid` | 프레임 추출 전략 |
-| `--interval` | `30` | `interval` 모드의 고정 간격(초) |
-| `--min-interval` | `10` | hybrid: 최소 프레임 간격 |
-| `--max-interval` | `60` | hybrid: 최대 공백 → 강제 프레임 삽입 |
-| `--max-frames` | `200` | 전체 프레임 상한 |
-| `--scene-threshold` | `0.3` | ffmpeg scene 민감도 (0~1) |
-| `--diarize` | off | 화자 분리 (`--hf-token` 필수) |
-| `--hf-token` | env `HF_TOKEN` | HuggingFace 토큰 |
-| `--prompt-file` | `prompts/default.md` | 프레임 해석 프롬프트 override |
-| `--context-window` | `30` | 프레임 주변 오디오 맥락(±초) |
+| `--mode` | `hybrid` | Frame extraction strategy: `hybrid`, `interval`, or `scene` |
+| `--interval` | `30` | Fixed seconds between frames (for `interval` mode) |
+| `--min-interval` | `10` | Hybrid: minimum seconds between kept frames |
+| `--max-interval` | `60` | Hybrid: force-insert a frame in gaps longer than this |
+| `--max-frames` | `200` | Hard cap on total frames analyzed |
+| `--scene-threshold` | `0.3` | ffmpeg scene sensitivity (0–1) |
+| `--diarize` | off | Enable speaker diarization (requires `--hf-token`) |
+| `--hf-token` | `$HF_TOKEN` | HuggingFace token for pyannote |
+| `--prompt-file` | `prompts/default.md` | Override the frame-description system prompt |
+| `--context-window` | `30` | ±seconds of audio context fed to each frame |
 | `--format` | `md` | `md` \| `json` \| `both` |
-| `--parallel` | `4` | 동시 agent 호출 수 |
-| `--keep-frames` | off | 프레임 이미지 유지 (기본은 삭제) |
-| `--check` | — | 의존성 검증만 하고 종료 |
+| `--parallel` | `4` | Concurrent agent invocations |
+| `--keep-frames` | off | Preserve extracted PNGs (default: deleted after run) |
+| `--check` | — | Preflight check (verifies all deps) and exit |
+| `-o`, `--output-dir` | `.` | Where to write the transcript |
 
-### 커스텀 프롬프트
+## 🎨 Custom Prompts
 
-`examples/meeting_recipe.md`, `examples/lecture_recipe.md` 참고:
+Tailor the frame-description style for your use case. Two recipes ship with the repo:
 
 ```bash
+# Business meeting recordings (Zoom, Meet, etc.)
 python3 video_transcribe.py meeting.mp4 --prompt-file examples/meeting_recipe.md
+
+# Lectures / technical tutorials
+python3 video_transcribe.py lecture.mp4 --prompt-file examples/lecture_recipe.md
 ```
 
-### 화자 분리 포함
+Or write your own — prompts are just plain text. The system prompt is sent to each frame call, so describe *what you want the agent to focus on* (slides, code, diagrams, product UI, etc.).
+
+## 🗣️ Speaker Diarization
+
+Need "who said what"? Add `--diarize`:
 
 ```bash
 python3 video_transcribe.py meeting.mp4 --diarize --hf-token $HF_TOKEN
 ```
 
-화자 분리용 HuggingFace 토큰은 [whisper_transcription README](https://github.com/treesoop/whisper_transcription#3-huggingface-토큰-발급-화자-분리-사용-시)의 절차를 따라 발급.
-
-## 출력 예시 (Markdown)
+Output becomes:
 
 ```markdown
-# meeting.mp4 — Transcript
+**[SPEAKER_00]** 00:00 Let's start today's review.
+**[SPEAKER_01]** 00:08 Sounds good, I'm ready.
+```
 
-**Duration:** 1:23:18 · **Frames analyzed:** 42 · **Agent:** claude · **Generated:** 2026-04-19T10:00:00+09:00
+(HuggingFace token for [pyannote diarization model](https://huggingface.co/pyannote/speaker-diarization-community-1) is free to get — just click "Agree" on the model page.)
+
+## 🏗️ Architecture
+
+```
+video_transcription/
+├── video_transcribe.py       # CLI orchestrator
+├── src/
+│   ├── audio.py              # mlx_whisper wrapper + video→wav extract
+│   ├── frames.py             # ffmpeg frame extraction (3 modes + dedup)
+│   ├── merge.py              # timeline builder + md/json renderers
+│   ├── preflight.py          # dependency check (--check)
+│   └── agents/
+│       ├── base.py           # BaseAgent(ABC) + AgentInvocationError
+│       ├── claude.py         # claude -p + Read-tool image pattern
+│       ├── codex.py          # codex exec -i
+│       └── gemini.py         # gemini -p @path
+├── prompts/
+│   └── default.md            # built-in frame-description prompt
+├── examples/
+│   ├── meeting_recipe.md
+│   └── lecture_recipe.md
+└── tests/                    # 31 unit tests, all pure-function where possible
+```
+
+**Design principles:**
+
+- 🎯 **One responsibility per file.** `frames.py` only knows frames. `merge.py` only knows timelines. Adapters only know their one CLI.
+- 🧪 **TDD on pure functions.** The hybrid frame-selection algorithm (min/max interval + downsample + dedup) has 10 unit tests and zero subprocess dependencies.
+- 🚫 **No shell=True.** Everything is a `list[str]` to `subprocess.run`. Zero injection surface.
+- 🔁 **Retry-once on CLI failures.** Transient network errors don't kill the whole run — just that one frame gets a `[frame description failed: ...]` placeholder and the pipeline continues.
+
+## 🧪 Dev
+
+```bash
+python3 -m pytest -v    # 31 tests
+```
+
+## 📚 Built On
+
+- [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) — Metal-accelerated Whisper
+- [whispermlx](https://github.com/kalebjs/whispermlx) — diarization via pyannote
+- [ffmpeg](https://ffmpeg.org/) — audio/frame extraction
+- [treesoop/whisper_transcription](https://github.com/treesoop/whisper_transcription) — the audio pipeline started here, got forked and expanded
+
+## 🤔 Comparison
+
+| | **video_transcription** | paid SaaS (Notta, etc.) | whisper + custom scripts |
+|---|---|---|---|
+| Audio transcript | ✅ | ✅ | ✅ |
+| **Frame descriptions** | ✅ | ❌ | ❌ (you'd build it) |
+| **Context-aware frames** | ✅ (audio → agent) | — | — |
+| Speaker diarization | ✅ (optional) | ✅ | ⚠️ (setup pain) |
+| Runs locally | ✅ | ❌ | ✅ |
+| Hallucination guarded | ✅ | ✅ | ⚠️ (default settings are lossy) |
+| Multilingual | ✅ 99 langs | ✅ | ✅ |
+| Price | Free | Subscription | Free (but your time) |
+| Swap AI provider | ✅ (one flag) | ❌ | — |
+
+## 📜 License
+
+MIT — same as upstream. Do whatever you want, attribution appreciated.
+
+## 🙌 Contributing
+
+PRs welcome. Good places to start:
+
+- Add a new agent adapter (Aider, Cursor headless, local LM Studio, etc.) — look at `src/agents/gemini.py` for the ~30-line template
+- Imagehash-based visual dedup (current MD5 dedup only catches bitwise-identical PNGs; visually-similar frames still get described multiple times)
+- Single-pass ffmpeg `select` filter for `_extract_at_timestamps` (current: one ffmpeg call per frame, fine up to ~100 frames)
+- Windows / Linux support (currently macOS-only because of mlx_whisper)
 
 ---
 
-**[SPEAKER_00]** 00:00 네 오늘은 1분기 리뷰 시작하겠습니다.
-**[SPEAKER_01]** 00:08 준비됐습니다.
+<div align="center">
 
-> 🖼️ **[00:15]** Zoom 화면 공유 상태. "Q1 Review" 슬라이드 표지. 상단에 참가자 썸네일 4명.
-```
+Made by [Dion](https://github.com/treesoop) · Part of [Treesoop](https://treesoop.com)
 
-## Prompt 팁
+**If this is useful, please ⭐ the repo — it's how I know what's worth building next.**
 
-- 용도별 프롬프트를 `examples/`에 두거나 직접 작성. 범용 기본값은 `prompts/default.md`.
-- 회의 녹화·강의·튜토리얼 등 타겟 컨텐츠에 맞춘 recipe를 쓰면 프레임 해석 품질이 눈에 띄게 향상됨.
-- 프롬프트는 일반 텍스트. `--prompt-file`로 경로 지정.
-
-## Architecture
-
-- `video_transcribe.py` — CLI entrypoint (argparse + 파이프라인 orchestration)
-- `src/audio.py` — mlx_whisper 래퍼 + 비디오→오디오 추출 (whisper_transcription 이식)
-- `src/frames.py` — ffmpeg 프레임 추출 (interval / scene / hybrid)
-- `src/agents/{claude,codex,gemini}.py` — subprocess 기반 pluggable adapter
-- `src/merge.py` — 타임라인 병합 + md/json 렌더
-- `src/preflight.py` — 의존성 검증 (`--check`)
-
-## Requirements
-
-- Apple Silicon Mac (M1/M2/M3/M4)
-- Python 3.9+
-- ffmpeg
-- 다음 중 하나: Claude Code / Codex CLI / Gemini CLI
-
-## License
-
-MIT (upstream `whisper_transcription`과 동일).
+</div>
