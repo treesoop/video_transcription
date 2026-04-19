@@ -37,7 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--min-interval", type=int, default=10)
     p.add_argument("--max-interval", type=int, default=60)
     p.add_argument("--max-frames", type=int, default=200)
-    p.add_argument("--scene-threshold", type=float, default=0.3)
+    p.add_argument("--scene-threshold", type=float, default=0.15,
+                   help="ffmpeg scene sensitivity (0-1). Lower = more frames. "
+                        "0.15 is a safe default for mixed content; try 0.3 for "
+                        "live-action, 0.05-0.1 for animation/illustration.")
     p.add_argument("--diarize", action="store_true")
     p.add_argument("--hf-token", default=os.environ.get("HF_TOKEN"))
     p.add_argument("--prompt-file", default=str(DEFAULT_PROMPT_PATH))
